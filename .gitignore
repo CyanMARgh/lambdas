@@ -1,2 +1,6 @@
-.build/*
+.build/
+.build/example_0_w2.o
+.build/example_1_w2.o
+.build/example_2_w2.o
+.build/example_3_w2.o
 example
