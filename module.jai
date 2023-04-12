@@ -1,6 +1,109 @@
 decl_lambda :: ($code_src : Code) -> Code #expand {
+	pair_names, pair_srcs := get_lambda_pairs(code_src);
+
+	node_decl := Code_Declaration.{
+		kind = .DECLARATION,
+		expression = pair_srcs
+	};
+	node_cdecl := Code_Compound_Declaration.{
+		kind = .COMPOUND_DECLARATION,
+		comma_separated_assignment = xx pair_names,
+		declaration_properties = *node_decl
+	};
+
+	return compiler_get_code(*node_cdecl);
+}
+assign_lambda :: ($code_src : Code) -> Code #expand {
+	pair_names, pair_srcs := get_lambda_pairs(code_src);
+
+	node_assign := Code_Binary_Operator.{
+		kind = .BINARY_OPERATOR,
+		operator_type = #char"=",
+		left = pair_names,
+		right = pair_srcs
+	};
+
+	return compiler_get_code(*node_assign);
+}
+#scope_file
+#import "Compiler";
+#import "Basic";
+#import "Program_Print";
+split_src :: (node_src : *Code_Node) -> proc_node:*Code_Node, data_node:*Code_Node, names:[]string, names_field:[]string, node_header:*Code_Procedure_Header, node_block:*Code_Block {
+	assert(node_src.kind == .BLOCK);
+	node_src_block := cast(*Code_Block) node_src;
+	node_src_statements := node_src_block.statements;
+	captured_count := node_src_statements.count - 4;
+	assert(captured_count >= 0);
+
+	names := NewArray(captured_count, string);
+	names_field := NewArray(captured_count, string);
+	for i : 2..captured_count+1 {
+		assert(node_src_statements[i].kind == .IDENT);
+	}
+	for i : 0..captured_count-1 {
+		name := (cast(*Code_Ident)node_src_statements[i + 2]).name;
+		names[i], names_field[i] = name, sprint("_%", name);
+	}
+
+	assert(node_src_statements[captured_count + 2].kind == .PROCEDURE_HEADER);
+	node_header := cast(*Code_Procedure_Header) node_src_statements[captured_count + 2];
+	assert(node_src_statements[captured_count + 3].kind == .BLOCK);
+	node_block := cast(*Code_Block) node_src_statements[captured_count + 3];
+	assert(node_block.block_type == .IMPERATIVE);
+
+	return node_src_statements[0], node_src_statements[1], names, names_field, node_header, node_block;
+}
+gen_struct_type_node :: (names : []string, names_field : []string) -> *Code_Node #expand {
+	captured_count := names.count;
+
+	nodes_ident := NewArray(captured_count, Code_Ident);
+	nodes_ptr := NewArray(captured_count, Code_Unary_Operator);
+	nodes_typeof := NewArray(captured_count, Code_Size_Or_Type_Info);
+	nodes_type := NewArray(captured_count, Code_Type_Instantiation);
+	nodes_declaration := NewArray(captured_count, Code_Declaration);
+	nodes_declaration_ptr := NewArray(captured_count, *Code_Node);
+
+	for i : 0..captured_count-1 {
+		nodes_ident[i] = .{
+			kind = .IDENT,
+			name = names[i]
+		};
+		nodes_ptr[i] = .{
+			kind = .UNARY_OPERATOR,
+			operator_type = #char"*",
+			subexpression = *(nodes_ident[i])			
+		};
+		nodes_typeof[i] = .{
+			kind = .SIZE_OR_TYPE_INFO,
+			query_kind = .TYPE_OF,
+			type_of_expression = *(nodes_ptr[i])
+		};
+		nodes_type[i] = .{
+			kind = .TYPE_INSTANTIATION,
+			type_valued_expression = *(nodes_typeof[i])
+		};
+		nodes_declaration[i] = .{
+			kind = .DECLARATION,
+			name = names_field[i],
+			type_inst = *(nodes_type[i])
+		};
+		nodes_declaration_ptr[i] = *(nodes_declaration[i]);
+	}
+	node_struct_block := Code_Block.{
+		kind = .BLOCK,
+		block_type = .DATA_DECLARATIONS,
+		statements = nodes_declaration_ptr
+	};
+	node_struct := Code_Struct.{
+		kind = .STRUCT,
+		block = *node_struct_block
+	};
+	return *node_struct;
+}
+get_lambda_pairs :: ($code_src : Code) -> pair_names:*Code_Node, pair_srcs:*Code_Node #expand {
 	node_src := compiler_get_nodes(code_src);
-	proc_name, data_name, names, names_field, node_header, node_block := split_src(node_src);
+	proc_node, data_node, names, names_field, node_header, node_block := split_src(node_src);
 
 	node_0 := gen_struct_type_node(names, names_field);
 	node_1 := Code_Unary_Operator.{
@@ -117,109 +220,22 @@ decl_lambda :: ($code_src : Code) -> Code #expand {
 		kind = .COMMA_SEPARATED_ARGUMENTS,
 		expressions = exprs
 	};
-	node_20 := Code_Ident.{
-		kind = .IDENT,
-		name = proc_name
-	};
-	node_21 := Code_Ident.{
-		kind = .IDENT,
-		name = data_name
-	};
+	// node_20 := Code_Ident.{
+	// 	kind = .IDENT,
+	// 	name = proc_name
+	// };
+	// node_21 := Code_Ident.{
+	// 	kind = .IDENT,
+	// 	name = data_name
+	// };
 	exprs2 : [2]*Code_Node;
-	exprs2[0] = *node_20;
-	exprs2[1] = *node_21;
+	exprs2[0] = proc_node;
+	exprs2[1] = data_node;
 	node_22 := Code_Comma_Separated_Arguments.{
 		kind = .COMMA_SEPARATED_ARGUMENTS,
 		expressions = exprs2
 	};
-	node_23 := Code_Declaration.{
-		kind = .DECLARATION,
-		expression = *node_19
-	};
-	node_24 := Code_Compound_Declaration.{
-		kind = .COMPOUND_DECLARATION,
-		comma_separated_assignment = *node_22,
-		declaration_properties = *node_23
-	};
 
-	return compiler_get_code(*node_24);
-}
-#scope_file
-#import "Compiler";
-#import "Basic";
-#import "Program_Print";
-split_src :: (node_src : *Code_Node) -> proc_name:string, data_name:string, names:[]string, names_field:[]string, node_header:*Code_Procedure_Header, node_block:*Code_Block {
-	assert(node_src.kind == .BLOCK);
-	node_src_block := cast(*Code_Block) node_src;
-	node_src_statements := node_src_block.statements;
-	captured_count := node_src_statements.count - 4;
-	assert(captured_count >= 0);
-
-	names := NewArray(captured_count, string);
-	names_field := NewArray(captured_count, string);
-	for i : 0..captured_count+1 {
-		assert(node_src_statements[i].kind == .IDENT);
-	}
-	for i : 0..captured_count-1 {
-		name := (cast(*Code_Ident)node_src_statements[i + 2]).name;
-		names[i], names_field[i] = name, sprint("_%", name);
-	}
-	proc_name := (cast(*Code_Ident)node_src_statements[0]).name;
-	data_name := (cast(*Code_Ident)node_src_statements[1]).name;
-
-	assert(node_src_statements[captured_count + 2].kind == .PROCEDURE_HEADER);
-	node_header := cast(*Code_Procedure_Header) node_src_statements[captured_count + 2];
-	assert(node_src_statements[captured_count + 3].kind == .BLOCK);
-	node_block := cast(*Code_Block) node_src_statements[captured_count + 3];
-	assert(node_block.block_type == .IMPERATIVE);
-
-	return proc_name, data_name, names, names_field, node_header, node_block;
-}
-gen_struct_type_node :: (names : []string, names_field : []string) -> *Code_Node #expand {
-	captured_count := names.count;
-
-	nodes_ident := NewArray(captured_count, Code_Ident);
-	nodes_ptr := NewArray(captured_count, Code_Unary_Operator);
-	nodes_typeof := NewArray(captured_count, Code_Size_Or_Type_Info);
-	nodes_type := NewArray(captured_count, Code_Type_Instantiation);
-	nodes_declaration := NewArray(captured_count, Code_Declaration);
-	nodes_declaration_ptr := NewArray(captured_count, *Code_Node);
-
-	for i : 0..captured_count-1 {
-		nodes_ident[i] = .{
-			kind = .IDENT,
-			name = names[i]
-		};
-		nodes_ptr[i] = .{
-			kind = .UNARY_OPERATOR,
-			operator_type = #char"*",
-			subexpression = *(nodes_ident[i])			
-		};
-		nodes_typeof[i] = .{
-			kind = .SIZE_OR_TYPE_INFO,
-			query_kind = .TYPE_OF,
-			type_of_expression = *(nodes_ptr[i])
-		};
-		nodes_type[i] = .{
-			kind = .TYPE_INSTANTIATION,
-			type_valued_expression = *(nodes_typeof[i])
-		};
-		nodes_declaration[i] = .{
-			kind = .DECLARATION,
-			name = names_field[i],
-			type_inst = *(nodes_type[i])
-		};
-		nodes_declaration_ptr[i] = *(nodes_declaration[i]);
-	}
-	node_struct_block := Code_Block.{
-		kind = .BLOCK,
-		block_type = .DATA_DECLARATIONS,
-		statements = nodes_declaration_ptr
-	};
-	node_struct := Code_Struct.{
-		kind = .STRUCT,
-		block = *node_struct_block
-	};
-	return *node_struct;
+	return *node_22, *node_19;
 }
 
