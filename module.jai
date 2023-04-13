@@ -1,5 +1,8 @@
 decl_lambda :: ($code_src : Code) -> Code #expand {
-	pair_names, pair_srcs := get_lambda_pairs(code_src);
+	node_src := compiler_get_nodes(code_src);
+	proc_node, data_node, names, names_field, node_header, node_block := split_src(false, node_src);
+
+	pair_names, pair_srcs := get_lambda_pairs(proc_node, data_node, names, names_field, node_header, node_block);
 
 	node_decl := Code_Declaration.{
 		kind = .DECLARATION,
@@ -13,8 +16,22 @@ decl_lambda :: ($code_src : Code) -> Code #expand {
 
 	return compiler_get_code(*node_cdecl);
 }
-assign_lambda :: ($code_src : Code) -> Code #expand {
-	pair_names, pair_srcs := get_lambda_pairs(code_src);
+assign_lambda :: ($code_src : Code, parent_scope := #caller_code) #expand {
+	#insert,scope(parent_scope) #run _assign_lambda(code_src);	
+}
+struct_lambda :: ($code_src : Code, parent_scope := #caller_code) #expand {
+	#insert,scope(parent_scope) #run _struct_lambda(code_src);
+}
+#scope_file
+#import "Compiler";
+#import "Basic";
+#import "Program_Print";
+
+_assign_lambda :: ($code_src : Code) -> Code {
+	node_src := compiler_get_nodes(code_src);
+	proc_node, data_node, names, names_field, node_header, node_block := split_src(false, node_src);
+
+	pair_names, pair_srcs := get_lambda_pairs(proc_node, data_node, names, names_field, node_header, node_block);
 
 	node_assign := Code_Binary_Operator.{
 		kind = .BINARY_OPERATOR,
@@ -22,37 +39,79 @@ assign_lambda :: ($code_src : Code) -> Code #expand {
 		left = pair_names,
 		right = pair_srcs
 	};
-
 	return compiler_get_code(*node_assign);
 }
-#scope_file
-#import "Compiler";
-#import "Basic";
-#import "Program_Print";
-split_src :: (node_src : *Code_Node) -> proc_node:*Code_Node, data_node:*Code_Node, names:[]string, names_field:[]string, node_header:*Code_Procedure_Header, node_block:*Code_Block {
+_struct_lambda :: ($code_src : Code) -> Code {
+	node_src := compiler_get_nodes(code_src);
+	proc_node, data_node, names, names_field, node_header, node_block := split_src(true, node_src);
+
+	pair_names, pair_srcs := get_lambda_pairs(proc_node, data_node, names, names_field, node_header, node_block);
+
+	node_assign := Code_Binary_Operator.{
+		kind = .BINARY_OPERATOR,
+		operator_type = #char"=",
+		left = pair_names,
+		right = pair_srcs
+	};
+	return compiler_get_code(*node_assign);
+}
+//TODO input += gen_pair:bool
+//TODO auto #run
+//TODO add support for non-"proc/data" names
+split_src :: (gen_pair : bool, node_src : *Code_Node) -> proc_node:*Code_Node, data_node:*Code_Node, names:[]string, names_field:[]string, node_header:*Code_Procedure_Header, node_block:*Code_Block #expand {
+	//=================
+	offset := ifx gen_pair then 1 else 2;
+
 	assert(node_src.kind == .BLOCK);
 	node_src_block := cast(*Code_Block) node_src;
 	node_src_statements := node_src_block.statements;
-	captured_count := node_src_statements.count - 4;
+	captured_count := node_src_statements.count - 2 - offset;
 	assert(captured_count >= 0);
 
 	names := NewArray(captured_count, string);
 	names_field := NewArray(captured_count, string);
-	for i : 2..captured_count+1 {
+	for i : offset..captured_count-1+offset {
 		assert(node_src_statements[i].kind == .IDENT);
 	}
 	for i : 0..captured_count-1 {
-		name := (cast(*Code_Ident)node_src_statements[i + 2]).name;
+		name := (cast(*Code_Ident)node_src_statements[i + offset]).name;
 		names[i], names_field[i] = name, sprint("_%", name);
 	}
 
-	assert(node_src_statements[captured_count + 2].kind == .PROCEDURE_HEADER);
-	node_header := cast(*Code_Procedure_Header) node_src_statements[captured_count + 2];
-	assert(node_src_statements[captured_count + 3].kind == .BLOCK);
-	node_block := cast(*Code_Block) node_src_statements[captured_count + 3];
+	assert(node_src_statements[captured_count + offset].kind == .PROCEDURE_HEADER);
+	node_header := cast(*Code_Procedure_Header) node_src_statements[captured_count + offset];
+	assert(node_src_statements[captured_count + offset + 1].kind == .BLOCK);
+	node_block := cast(*Code_Block) node_src_statements[captured_count + offset + 1];
 	assert(node_block.block_type == .IMPERATIVE);
 
-	return node_src_statements[0], node_src_statements[1], names, names_field, node_header, node_block;
+	proc_node, data_node : *Code_Node;
+	if gen_pair {
+		node_0 := Code_Ident.{
+			kind = .IDENT,
+			name = "proc"
+		};
+		node_1 := Code_Ident.{
+			kind = .IDENT,
+			name = "data"
+		};
+		node_2 := Code_Binary_Operator.{
+			kind = .BINARY_OPERATOR,
+			operator_type = #char".",
+			left = node_src_statements[0],
+			right = *node_0
+		};
+		node_3 := Code_Binary_Operator.{
+			kind = .BINARY_OPERATOR,
+			operator_type = #char".",
+			left = node_src_statements[0],
+			right = *node_1
+		};
+		proc_node, data_node = *node_2, *node_3;
+	} else {
+		proc_node, data_node = node_src_statements[0], node_src_statements[1];
+	}
+
+	return proc_node, data_node, names, names_field, node_header, node_block;
 }
 gen_struct_type_node :: (names : []string, names_field : []string) -> *Code_Node #expand {
 	captured_count := names.count;
@@ -101,9 +160,11 @@ gen_struct_type_node :: (names : []string, names_field : []string) -> *Code_Node
 	};
 	return *node_struct;
 }
-get_lambda_pairs :: ($code_src : Code) -> pair_names:*Code_Node, pair_srcs:*Code_Node #expand {
-	node_src := compiler_get_nodes(code_src);
-	proc_node, data_node, names, names_field, node_header, node_block := split_src(node_src);
+//TODO better assertions
+//TODO input = proc_node:*Code_Node, data_node:*Code_Node, names:[]string, names_field:[]string, node_header:*Code_Procedure_Header, node_block:*Code_Block
+get_lambda_pairs :: (proc_node:*Code_Node, data_node:*Code_Node, names:[]string, names_field:[]string, node_header:*Code_Procedure_Header, node_block:*Code_Block) -> pair_names:*Code_Node, pair_srcs:*Code_Node #expand {
+	// node_src := compiler_get_nodes(code_src);
+	// proc_node, data_node, names, names_field, node_header, node_block := split_src(false, node_src);
 
 	node_0 := gen_struct_type_node(names, names_field);
 	node_1 := Code_Unary_Operator.{
