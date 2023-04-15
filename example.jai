@@ -16,13 +16,13 @@ decl_example :: () {
 
 	//	Here is how it will be expanded:
 
-	//	proc, data := (x : int, y := 20, __data : *void) -> int {
-	//		using cast(*struct{_a:*int;_b:*string;}) __data;
-	// 		print("hello from lambda!\n");
-	// 		print("args: x = %, y = %; captured: a = %, b = %\n", x, y, <<_a, <<_b);
-	// 		<<_a += 1;
-	// 		return x + y + <<_a;	
-	//	}, *((struct{_a:*type_of(a);_b:*type_of(b);}).{*a, *b});
+	// proc, data := (x : int, y := 20, __data : *void) -> int {
+	// 	using cast(*struct{_a:*int;_b:*string;}) __data;
+	// 	print("hello from lambda!\n");
+	// 	print("args: x = %, y = %; captured: a = %, b = %\n", x, y, <<_a, <<_b);
+	// 	<<_a += 1;
+	// 	return x + y + <<_a;	
+	// }, *((struct{_a:*type_of(a);_b:*type_of(b);}).{*a, *b});
 
 	proc(1, 2, data);
 	proc(1, 2, data);
@@ -72,17 +72,6 @@ test :: (parent_scope := #caller_code) -> Code #expand {
 }
 
 main :: () {
-	// aptr : *int;
-	// if false {
-
-	// } else {
-	// 	x := 20;
-	// 	aptr = *x;
-	// }
-	// y := 15;
-	// print("x = %", <<aptr);
-	// x := 10;
-	// test();
 	decl_example();
 	set_example();
 }
